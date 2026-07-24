@@ -280,12 +280,13 @@ export default function Home() {
             <strong>{baseHex}</strong>
           </div>
           <div className="summary-copy">
-            <p className="section-label">OUTPUT / 可能结果</p>
-            <h2>{points.length.toLocaleString("zh-CN")} 种<br />通道组合</h2>
-            <p>色点越分散，视觉上的波动空间越大。中央十字标记你的基准色。</p>
+            <p className="section-label">OUTPUT / 最大近似色差</p>
+            <h2 className="delta-heading"><small>ΔE</small>{farthest.distance.toFixed(1)}</h2>
+            <p className="delta-formula">ΔE*ab = √[(ΔL*)² + (Δa*)² + (Δb*)²]</p>
+            <p>采用 CIE76 欧氏距离估算当前容差范围内，偏离基准色最远的屏幕模拟色。</p>
             <dl>
               <div><dt>RGB 模拟</dt><dd>{baseRgb.join(" · ")}</dd></div>
-              <div><dt>最大近似色差</dt><dd>ΔE {farthest.distance.toFixed(1)}</dd></div>
+              <div><dt>通道容差</dt><dd>C / M / Y / K 各 ±{tolerance}</dd></div>
               <div><dt>最大偏离样本</dt><dd>{farthest.hex}</dd></div>
             </dl>
           </div>

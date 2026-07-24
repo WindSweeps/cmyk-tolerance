@@ -182,8 +182,8 @@ function renderResults() {
   document.querySelector("#base-swatch").style.background = baseHex;
   document.querySelector("#base-hex").textContent = baseHex;
   document.querySelector("#base-rgb").textContent = baseRgb.join(" · ");
-  document.querySelector("#combination-count").textContent = state.points.length.toLocaleString("zh-CN");
-  document.querySelector("#max-distance").textContent = `ΔE ${farthest.distance.toFixed(1)}`;
+  document.querySelector("#max-distance-heading").textContent = farthest.distance.toFixed(1);
+  document.querySelector("#summary-tolerance").textContent = `C / M / Y / K 各 ±${state.tolerance}`;
   document.querySelector("#farthest-hex").textContent = farthest.hex;
   document.querySelector("#gamut").setAttribute("aria-label", `${state.points.length} 种可能颜色的色彩分布图`);
 
