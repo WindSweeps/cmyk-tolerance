@@ -229,6 +229,196 @@ function buildSwatches() {
   });
 }
 
+const EXPORT_SANS = 'system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", Arial, sans-serif';
+const EXPORT_SERIF = '"Songti SC", STSong, SimSun, "Noto Serif CJK SC", "Noto Serif SC", serif';
+const EXPORT_MONO = 'ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, "Liberation Mono", monospace';
+
+function makeExportCanvas(width, height, gridSize = 48) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#f3f0e8";
+  context.fillRect(0, 0, width, height);
+  context.strokeStyle = "rgba(24, 24, 22, .055)";
+  context.lineWidth = 1;
+  for (let x = 0; x <= width; x += gridSize) {
+    context.beginPath();
+    context.moveTo(x + .5, 0);
+    context.lineTo(x + .5, height);
+    context.stroke();
+  }
+  for (let y = 0; y <= height; y += gridSize) {
+    context.beginPath();
+    context.moveTo(0, y + .5);
+    context.lineTo(width, y + .5);
+    context.stroke();
+  }
+  return { canvas, context };
+}
+
+function exportTextColor(rgb) {
+  return rgb[0] * .299 + rgb[1] * .587 + rgb[2] * .114 > 155 ? "#181816" : "#fbfaf6";
+}
+
+function downloadCanvas(canvas, filename) {
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, "image/png");
+}
+
+function exportSwatchSheet() {
+  const swatches = buildSwatches();
+  const width = 1800;
+  const margin = 72;
+  const headerHeight = 292;
+  const columns = 9;
+  const cell = (width - margin * 2) / columns;
+  const height = Math.round(headerHeight + cell * Math.ceil(swatches.length / columns) + 92);
+  const { canvas, context } = makeExportCanvas(width, height);
+  const cmykLabel = `C${state.cmyk.c}  M${state.cmyk.m}  Y${state.cmyk.y}  K${state.cmyk.k}`;
+
+  context.fillStyle = "#ff4f2e";
+  context.font = `600 18px ${EXPORT_MONO}`;
+  context.letterSpacing = "3px";
+  context.fillText("PROOF SHEET / 代表性色样谱", margin, 70);
+  context.letterSpacing = "0px";
+  context.fillStyle = "#181816";
+  context.font = `600 74px ${EXPORT_SERIF}`;
+  context.fillText("CMYK 容差色样谱", margin, 160);
+  context.font = `500 22px ${EXPORT_MONO}`;
+  context.fillText(`${cmykLabel}   ·   各通道 ±${state.tolerance}   ·   ${swatches.length} 个代表样本`, margin, 214);
+  context.fillStyle = "#6f6c65";
+  context.font = `400 18px ${EXPORT_SANS}`;
+  context.fillText("每个通道取下限、基准与上限，按当前页面排列方式生成。", margin, 253);
+
+  swatches.forEach((swatch, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const x = margin + column * cell;
+    const y = headerHeight + row * cell;
+    context.fillStyle = swatch.hex;
+    context.fillRect(x, y, cell - 2, cell - 2);
+    context.fillStyle = exportTextColor(swatch.rgb);
+    context.font = `700 17px ${EXPORT_MONO}`;
+    context.fillText(swatch.hex, x + 15, y + 30);
+    context.font = `500 13px ${EXPORT_MONO}`;
+    context.fillText(`C${swatch.c} M${swatch.m}`, x + 15, y + cell - 42);
+    context.fillText(`Y${swatch.y} K${swatch.k}`, x + 15, y + cell - 21);
+  });
+
+  context.fillStyle = "#6f6c65";
+  context.font = `400 14px ${EXPORT_MONO}`;
+  context.fillText("SCREEN SIMULATION · CIE76 · COLOR TOLERANCE STUDY", margin, height - 38);
+  downloadCanvas(canvas, `CMYK-${state.cmyk.c}-${state.cmyk.m}-${state.cmyk.y}-${state.cmyk.k}-色样谱.png`);
+}
+
+function exportDeltaPanel() {
+  const width = 2000;
+  const height = 1220;
+  const leftWidth = 690;
+  const baseHeight = 410;
+  const padding = 58;
+  const { canvas, context } = makeExportCanvas(width, height);
+  const sourceCanvas = document.querySelector("#gamut");
+  const baseRgb = cmykToRgb(state.cmyk);
+  const baseHex = rgbToHex(baseRgb);
+  const delta = document.querySelector("#max-distance-heading").textContent;
+  const farthestHex = document.querySelector("#farthest-hex").textContent;
+
+  context.fillStyle = baseHex;
+  context.fillRect(0, 0, leftWidth, baseHeight);
+  context.fillStyle = exportTextColor(baseRgb);
+  context.font = `600 17px ${EXPORT_MONO}`;
+  context.fillText("BASE", padding, 62);
+  context.font = `700 30px ${EXPORT_MONO}`;
+  context.fillText(baseHex, padding, baseHeight - 48);
+
+  context.fillStyle = "#fbfaf6";
+  context.fillRect(0, baseHeight, leftWidth, height - baseHeight);
+  context.fillStyle = "#ff4f2e";
+  context.font = `600 15px ${EXPORT_MONO}`;
+  context.fillText("OUTPUT / 最大近似色差", padding, baseHeight + 72);
+  context.font = `600 32px ${EXPORT_MONO}`;
+  context.fillText("ΔE", padding, baseHeight + 144);
+  context.fillStyle = "#181816";
+  context.font = `600 92px ${EXPORT_SERIF}`;
+  context.fillText(delta, padding + 78, baseHeight + 148);
+  context.fillStyle = "#181816";
+  context.fillRect(padding, baseHeight + 190, 3, 69);
+  context.font = `500 18px ${EXPORT_MONO}`;
+  context.fillText("ΔE*ab = √[(ΔL*)² + (Δa*)² + (Δb*)²]", padding + 18, baseHeight + 218);
+  context.fillStyle = "#6f6c65";
+  context.font = `400 18px ${EXPORT_SANS}`;
+  context.fillText("采用 CIE76 欧氏距离估算容差范围内的最大偏离。", padding, baseHeight + 305);
+
+  const rows = [
+    ["RGB 模拟", baseRgb.join(" · ")],
+    ["CMYK 基准", `C${state.cmyk.c} · M${state.cmyk.m} · Y${state.cmyk.y} · K${state.cmyk.k}`],
+    ["通道容差", `C / M / Y / K 各 ±${state.tolerance}`],
+    ["最大偏离样本", farthestHex],
+  ];
+  context.strokeStyle = "#d1ccc0";
+  context.lineWidth = 1;
+  rows.forEach(([label, value], index) => {
+    const y = baseHeight + 382 + index * 72;
+    context.beginPath();
+    context.moveTo(padding, y);
+    context.lineTo(leftWidth - padding, y);
+    context.stroke();
+    context.fillStyle = "#969187";
+    context.font = `400 15px ${EXPORT_SANS}`;
+    context.fillText(label, padding, y + 43);
+    context.fillStyle = "#181816";
+    context.font = `500 16px ${EXPORT_MONO}`;
+    context.textAlign = "right";
+    context.fillText(value, leftWidth - padding, y + 43);
+    context.textAlign = "left";
+  });
+
+  context.fillStyle = "#dedbd3";
+  context.fillRect(leftWidth, 0, width - leftWidth, height);
+  context.fillStyle = "#181816";
+  context.font = `600 25px ${EXPORT_SERIF}`;
+  context.fillText("色彩分布图", leftWidth + padding, 70);
+  context.fillStyle = "#969187";
+  context.font = `500 14px ${EXPORT_MONO}`;
+  context.fillText("CIELAB a* / b* 平面", leftWidth + padding, 100);
+  context.textAlign = "right";
+  context.fillText("−a 绿     ─────     +a 红", width - padding, 74);
+  context.textAlign = "left";
+
+  const plotX = leftWidth + padding;
+  const plotY = 132;
+  const plotWidth = width - leftWidth - padding * 2;
+  const plotHeight = height - 224;
+  context.strokeStyle = "rgba(24, 24, 22, .09)";
+  context.beginPath();
+  context.moveTo(plotX + plotWidth / 2, plotY);
+  context.lineTo(plotX + plotWidth / 2, plotY + plotHeight);
+  context.moveTo(plotX, plotY + plotHeight / 2);
+  context.lineTo(plotX + plotWidth, plotY + plotHeight / 2);
+  context.stroke();
+  context.drawImage(sourceCanvas, plotX, plotY, plotWidth, plotHeight);
+  context.fillStyle = "#969187";
+  context.font = `500 14px ${EXPORT_MONO}`;
+  context.fillText("−b 蓝", plotX, height - 42);
+  context.textAlign = "right";
+  context.fillText("+b 黄", plotX + plotWidth, height - 42);
+  context.textAlign = "left";
+
+  downloadCanvas(canvas, `CMYK-${state.cmyk.c}-${state.cmyk.m}-${state.cmyk.y}-${state.cmyk.k}-DeltaE.png`);
+}
+
 function renderResults() {
   const baseRgb = cmykToRgb(state.cmyk);
   const baseHex = rgbToHex(baseRgb);
@@ -282,6 +472,8 @@ function initialize() {
     state.sort = event.target.value;
     renderResults();
   });
+  document.querySelector("#export-swatches").addEventListener("click", exportSwatchSheet);
+  document.querySelector("#export-delta").addEventListener("click", exportDeltaPanel);
 
   renderChannels();
   renderResults();

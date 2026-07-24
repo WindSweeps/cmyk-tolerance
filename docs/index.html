@@ -6,8 +6,8 @@
   <meta name="description" content="输入 CMYK 值，可视化四个通道在正负 10 以内的所有可能颜色。">
   <title>色差实验室｜CMYK 容差可视化</title>
   <link rel="icon" href="./favicon.svg">
-  <link rel="stylesheet" href="./styles.css?v=5">
-  <script src="./app.js?v=5" defer></script>
+  <link rel="stylesheet" href="./styles.css?v=6">
+  <script src="./app.js?v=6" defer></script>
 </head>
 <body>
   <main class="app-shell">
@@ -74,7 +74,10 @@
       <div class="gamut-panel">
         <div class="panel-heading">
           <div><span>色彩分布图</span><small>CIELAB a* / b* 平面</small></div>
-          <div class="axis-key" aria-hidden="true"><span>−a 绿</span><i></i><span>+a 红</span></div>
+          <div class="panel-actions">
+            <div class="axis-key" aria-hidden="true"><span>−a 绿</span><i></i><span>+a 红</span></div>
+            <button class="export-button" id="export-delta" type="button">导出完整图 <span>PNG ↓</span></button>
+          </div>
         </div>
         <canvas id="gamut" aria-label="可能颜色的色彩分布图"></canvas>
         <div class="gamut-axis" aria-hidden="true"><span>−b 蓝</span><span>+b 黄</span></div>
@@ -87,13 +90,16 @@
           <p class="section-label">PROOF SHEET / 边界色样</p>
           <h2 id="swatch-title">代表性色样谱</h2>
         </div>
-        <div class="sort-control">
-          <label for="sort">排列</label>
-          <select id="sort">
-            <option value="distance">由接近到偏离</option>
-            <option value="light">由明到暗</option>
-            <option value="channel">按 CMYK 数值</option>
-          </select>
+        <div class="swatch-actions">
+          <div class="sort-control">
+            <label for="sort">排列</label>
+            <select id="sort">
+              <option value="distance">由接近到偏离</option>
+              <option value="light">由明到暗</option>
+              <option value="channel">按 CMYK 数值</option>
+            </select>
+          </div>
+          <button class="export-button export-button-dark" id="export-swatches" type="button">导出色样谱 <span>PNG ↓</span></button>
         </div>
       </div>
       <p class="swatch-intro">从每个通道的下限、基准、上限组合中抽取 <span id="swatch-count"></span> 个代表样本。悬停或聚焦可查看精确配方。</p>
