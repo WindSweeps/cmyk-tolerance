@@ -314,9 +314,23 @@ dd { font-family: var(--mono); font-size: 10px; margin: 0; }
 .panel-heading > div:first-child { display: grid; gap: 4px; }
 .panel-heading span { font-family: var(--serif); font-size: 13px; font-weight: 600; }
 .panel-heading small, .axis-key { color: var(--quiet); font-family: var(--mono); font-size: 8px; }
-.panel-actions, .swatch-actions { align-items: center; display: flex; gap: 18px; }
+.panel-actions, .swatch-actions { align-items: center; display: flex; gap: 14px; }
 .axis-key { align-items: center; display: flex; gap: 7px; }
 .axis-key i { background: var(--line-dark); height: 1px; width: 36px; }
+.mode-switch { border: 1px solid var(--line-dark); display: inline-flex; padding: 2px; }
+.mode-switch button {
+  background: transparent;
+  border: 0;
+  color: var(--quiet);
+  font-family: var(--sans);
+  font-size: 8px;
+  font-weight: 650;
+  min-height: 28px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+.mode-switch button:hover { color: var(--ink); }
+.mode-switch button.is-active { background: var(--ink); color: var(--surface); }
 .export-button {
   align-items: center;
   background: transparent;
@@ -337,7 +351,9 @@ dd { font-family: var(--mono); font-size: 10px; margin: 0; }
 .export-button-dark { background: var(--ink); border-color: var(--ink); color: var(--surface); }
 .export-button-dark span { color: var(--paper-deep); }
 .export-button-dark:hover { background: var(--signal); border-color: var(--signal); }
-.gamut-panel canvas { display: block; height: 520px; position: relative; width: 100%; }
+.gamut-canvas-wrap { height: 520px; position: relative; }
+.gamut-canvas-wrap canvas { display: block; height: 100%; inset: 0; position: absolute; width: 100%; }
+.gamut-canvas-wrap canvas[hidden] { display: none; }
 .gamut-axis { bottom: 17px; color: var(--quiet); display: flex; font-family: var(--mono); font-size: 8px; justify-content: space-between; left: 25px; position: absolute; right: 25px; }
 
 .swatch-section { border-top: 1px solid var(--line-dark); padding-top: 0; }
@@ -416,9 +432,10 @@ footer span { font-family: var(--mono); letter-spacing: .05em; white-space: nowr
   .result-summary { grid-template-columns: 1fr; }
   .base-swatch { min-height: 180px; }
   .gamut-panel { padding: 18px; }
-  .gamut-panel canvas { height: 390px; }
+  .gamut-canvas-wrap { height: 390px; }
   .gamut-panel::before { inset: 62px 18px 38px; }
   .axis-key { display: none; }
+  .panel-actions { align-items: flex-end; flex-direction: column; gap: 8px; }
   .swatch-heading { align-items: stretch; gap: 20px; }
   .swatch-actions { align-items: stretch; flex-direction: column; gap: 10px; }
   .sort-control { justify-content: space-between; }

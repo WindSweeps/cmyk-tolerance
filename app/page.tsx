@@ -65,6 +65,72 @@ function makePoint(value: CMYK, baseLab: ReturnType<typeof rgbToLab>): ColorPoin
   };
 }
 
+function buildPreviewPoints(cmyk: CMYK, tolerance: number, baseLab: ReturnType<typeof rgbToLab>, limit = 8000) {
+  const result: ColorPoint[] = [];
+  const side = tolerance * 2 + 1;
+  const total = side ** 4;
+  const sampleCount = Math.min(total, limit);
+  for (let sample = 0; sample < sampleCount; sample += 1) {
+    const index = sampleCount === 1 ? 0 : Math.round(sample * (total - 1) / (sampleCount - 1));
+    let remainder = index;
+    const dk = remainder % side - tolerance;
+    remainder = Math.floor(remainder / side);
+    const dy = remainder % side - tolerance;
+    remainder = Math.floor(remainder / side);
+    const dm = remainder % side - tolerance;
+    const dc = Math.floor(remainder / side) - tolerance;
+    result.push(makePoint({
+      c: clamp(cmyk.c + dc),
+      m: clamp(cmyk.m + dm),
+      y: clamp(cmyk.y + dy),
+      k: clamp(cmyk.k + dk),
+    }, baseLab));
+  }
+  return result;
+}
+
+function drawPointGamut(canvas: HTMLCanvasElement, points: ColorPoint[], baseLab: ReturnType<typeof rgbToLab>) {
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height || !points.length) return;
+  const ratio = Math.min(window.devicePixelRatio || 1, 2);
+  const width = Math.round(rect.width * ratio);
+  const height = Math.round(rect.height * ratio);
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, rect.width, rect.height);
+  const padding = 32;
+  const minA = Math.min(...points.map((point) => point.a));
+  const maxA = Math.max(...points.map((point) => point.a));
+  const minB = Math.min(...points.map((point) => point.b));
+  const maxB = Math.max(...points.map((point) => point.b));
+  const spanA = Math.max(maxA - minA, 1);
+  const spanB = Math.max(maxB - minB, 1);
+  const xFor = (a: number) => padding + ((a - minA) / spanA) * (rect.width - padding * 2);
+  const yFor = (b: number) => rect.height - padding - ((b - minB) / spanB) * (rect.height - padding * 2);
+  for (const point of points) {
+    context.fillStyle = point.hex;
+    context.beginPath();
+    context.arc(xFor(point.a), yFor(point.b), points.length > 5000 ? 2.1 : 2.5, 0, Math.PI * 2);
+    context.fill();
+  }
+  const x = xFor(baseLab.a);
+  const y = yFor(baseLab.b);
+  context.strokeStyle = "#181816";
+  context.lineWidth = 1.5;
+  context.beginPath();
+  context.arc(x, y, 7, 0, Math.PI * 2);
+  context.moveTo(x - 11, y);
+  context.lineTo(x + 11, y);
+  context.moveTo(x, y - 11);
+  context.lineTo(x, y + 11);
+  context.stroke();
+}
+
 const EXPORT_SANS = 'system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", Arial, sans-serif';
 const EXPORT_SERIF = '"Songti SC", STSong, SimSun, "Noto Serif CJK SC", "Noto Serif SC", serif';
 const EXPORT_MONO = 'ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, "Liberation Mono", monospace';
@@ -257,12 +323,18 @@ export default function Home() {
   const [cmyk, setCmyk] = useState<CMYK>({ c: 80, m: 80, y: 60, k: 5 });
   const [tolerance, setTolerance] = useState(10);
   const [sort, setSort] = useState<"distance" | "light" | "channel">("distance");
+  const [gamutMode, setGamutMode] = useState<"points" | "continuous">("points");
   const [exactFarthest, setExactFarthest] = useState<ColorPoint | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pointsCanvasRef = useRef<HTMLCanvasElement>(null);
+  const continuousCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const baseRgb = useMemo(() => cmykToRgb(cmyk), [cmyk]);
   const baseHex = useMemo(() => rgbToHex(baseRgb), [baseRgb]);
   const baseLab = useMemo(() => rgbToLab(baseRgb), [baseRgb]);
+  const previewPoints = useMemo(
+    () => buildPreviewPoints(cmyk, tolerance, baseLab),
+    [cmyk, tolerance, baseLab],
+  );
 
   useEffect(() => {
     setExactFarthest(null);
@@ -306,15 +378,18 @@ export default function Home() {
   const farthest = exactFarthest ?? previewFarthest;
 
   useEffect(() => {
-    const canvas = canvasRef.current;
+    const canvas = gamutMode === "continuous" ? continuousCanvasRef.current : pointsCanvasRef.current;
     if (!canvas) return;
-    const draw = () => drawShaderGamut(canvas, cmyk, tolerance);
+    const draw = () => {
+      if (gamutMode === "continuous") drawShaderGamut(canvas, cmyk, tolerance);
+      else drawPointGamut(canvas, previewPoints, baseLab);
+    };
 
     draw();
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [cmyk, tolerance]);
+  }, [cmyk, tolerance, gamutMode, previewPoints, baseLab]);
 
   const updateChannel = (key: keyof CMYK, value: number) => {
     setCmyk((current) => ({ ...current, [key]: clamp(Number.isFinite(value) ? value : 0) }));
@@ -446,17 +521,45 @@ export default function Home() {
               <small>CIELAB a* / b* 平面</small>
             </div>
             <div className="panel-actions">
+              <div className="mode-switch" role="group" aria-label="色彩分布显示模式">
+                <button
+                  className={gamutMode === "points" ? "is-active" : ""}
+                  type="button"
+                  aria-pressed={gamutMode === "points"}
+                  onClick={() => setGamutMode("points")}
+                >
+                  浮点模式
+                </button>
+                <button
+                  className={gamutMode === "continuous" ? "is-active" : ""}
+                  type="button"
+                  aria-pressed={gamutMode === "continuous"}
+                  onClick={() => setGamutMode("continuous")}
+                >
+                  连续模式
+                </button>
+              </div>
               <div className="axis-key" aria-hidden="true"><span>−a 绿</span><i /><span>+a 红</span></div>
               <button
                 className="export-button"
                 type="button"
-                onClick={() => exportDeltaImage(cmyk, tolerance, baseRgb, baseHex, farthest, canvasRef.current)}
+                onClick={() => exportDeltaImage(
+                  cmyk,
+                  tolerance,
+                  baseRgb,
+                  baseHex,
+                  farthest,
+                  gamutMode === "continuous" ? continuousCanvasRef.current : pointsCanvasRef.current,
+                )}
               >
                 导出完整图 <span>PNG ↓</span>
               </button>
             </div>
           </div>
-          <canvas ref={canvasRef} aria-label="指定 CMYK 容差内可能颜色的抽样分布图" />
+          <div className="gamut-canvas-wrap">
+            <canvas ref={pointsCanvasRef} aria-label="指定 CMYK 容差内可能颜色的浮点分布图" hidden={gamutMode !== "points"} />
+            <canvas ref={continuousCanvasRef} aria-label="指定 CMYK 容差内可能颜色的连续分布图" hidden={gamutMode !== "continuous"} />
+          </div>
           <div className="gamut-axis" aria-hidden="true"><span>−b 蓝</span><span>+b 黄</span></div>
         </div>
       </section>

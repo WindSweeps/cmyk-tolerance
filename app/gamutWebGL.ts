@@ -33,7 +33,7 @@ void main() {
     return;
   }
   if (u_mode == 1) {
-    out_color = vec4(0.094, 0.094, 0.086, 0.92);
+    out_color = vec4(0.094, 0.094, 0.086, 0.24);
     return;
   }
   out_color = vec4(v_color, 1.0);
@@ -180,7 +180,10 @@ export function drawShaderGamut(canvas: HTMLCanvasElement, base: GamutCMYK, tole
     gl.drawArrays(gl.TRIANGLE_FAN, 0, vertices.length);
     gl.uniform1i(uniforms.mode, 1);
     gl.lineWidth(Math.min(1.25 * ratio, 2));
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.drawArrays(gl.LINE_LOOP, 1, hull.length);
+    gl.disable(gl.BLEND);
   }
   gl.uniform1i(uniforms.mode, 2);
   gl.drawArrays(gl.POINTS, 0, 1);

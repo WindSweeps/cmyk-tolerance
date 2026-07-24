@@ -6,8 +6,8 @@
   <meta name="description" content="输入 CMYK 值，可视化四个通道在正负 10 以内的所有可能颜色。">
   <title>色差实验室｜CMYK 容差可视化</title>
   <link rel="icon" href="./favicon.svg">
-  <link rel="stylesheet" href="./styles.css?v=6">
-  <script src="./app.js?v=10" defer></script>
+  <link rel="stylesheet" href="./styles.css?v=7">
+  <script src="./app.js?v=11" defer></script>
 </head>
 <body>
   <main class="app-shell">
@@ -75,11 +75,18 @@
         <div class="panel-heading">
           <div><span>色彩分布图</span><small>CIELAB a* / b* 平面</small></div>
           <div class="panel-actions">
+            <div class="mode-switch" role="group" aria-label="色彩分布显示模式">
+              <button class="is-active" type="button" data-gamut-mode="points" aria-pressed="true">浮点模式</button>
+              <button type="button" data-gamut-mode="continuous" aria-pressed="false">连续模式</button>
+            </div>
             <div class="axis-key" aria-hidden="true"><span>−a 绿</span><i></i><span>+a 红</span></div>
             <button class="export-button" id="export-delta" type="button">导出完整图 <span>PNG ↓</span></button>
           </div>
         </div>
-        <canvas id="gamut" aria-label="可能颜色的色彩分布图"></canvas>
+        <div class="gamut-canvas-wrap">
+          <canvas id="gamut-points" aria-label="指定 CMYK 容差内可能颜色的浮点分布图"></canvas>
+          <canvas id="gamut-continuous" aria-label="指定 CMYK 容差内可能颜色的连续分布图" hidden></canvas>
+        </div>
         <div class="gamut-axis" aria-hidden="true"><span>−b 蓝</span><span>+b 黄</span></div>
       </div>
     </section>

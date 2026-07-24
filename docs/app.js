@@ -23,6 +23,7 @@ const state = {
   worker: null,
   workerRequest: 0,
   gamutRenderer: undefined,
+  gamutMode: "points",
 };
 
 const clamp = (value) => Math.max(0, Math.min(100, Math.round(value)));
@@ -158,7 +159,7 @@ void main() {
     return;
   }
   if (u_mode == 1) {
-    out_color = vec4(0.094, 0.094, 0.086, 0.92);
+    out_color = vec4(0.094, 0.094, 0.086, 0.24);
     return;
   }
   out_color = vec4(v_color, 1.0);
@@ -293,7 +294,10 @@ function drawGamutWebGL(renderer, width, height, ratio) {
     gl.drawArrays(gl.TRIANGLE_FAN, 0, vertices.length);
     gl.uniform1i(uniforms.mode, 1);
     gl.lineWidth(Math.min(1.25 * ratio, 2));
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.drawArrays(gl.LINE_LOOP, 1, hull.length);
+    gl.disable(gl.BLEND);
   }
   gl.uniform1i(uniforms.mode, 2);
   gl.drawArrays(gl.POINTS, 0, 1);
@@ -341,7 +345,12 @@ function drawGamutFallback(canvas, rect, ratio) {
 }
 
 function drawGamut() {
-  const canvas = document.querySelector("#gamut");
+  const pointsCanvas = document.querySelector("#gamut-points");
+  const continuousCanvas = document.querySelector("#gamut-continuous");
+  const useContinuous = state.gamutMode === "continuous";
+  pointsCanvas.hidden = useContinuous;
+  continuousCanvas.hidden = !useContinuous;
+  const canvas = useContinuous ? continuousCanvas : pointsCanvas;
   const rect = canvas.getBoundingClientRect();
   if (!rect.width || !rect.height) return;
   const ratio = Math.min(window.devicePixelRatio || 1, 2);
@@ -351,11 +360,13 @@ function drawGamut() {
     canvas.width = width;
     canvas.height = height;
   }
-  if (state.gamutRenderer === undefined) {
-    state.gamutRenderer = createGamutRenderer(canvas);
-  }
-  if (state.gamutRenderer) {
-    drawGamutWebGL(state.gamutRenderer, width, height, ratio);
+  if (useContinuous) {
+    if (state.gamutRenderer === undefined) {
+      state.gamutRenderer = createGamutRenderer(canvas);
+    }
+    if (state.gamutRenderer) {
+      drawGamutWebGL(state.gamutRenderer, width, height, ratio);
+    }
   } else {
     drawGamutFallback(canvas, rect, ratio);
   }
@@ -510,7 +521,7 @@ function exportDeltaPanel() {
   const baseHeight = 410;
   const padding = 58;
   const { canvas, context } = makeExportCanvas(width, height);
-  const sourceCanvas = document.querySelector("#gamut");
+  const sourceCanvas = document.querySelector(state.gamutMode === "continuous" ? "#gamut-continuous" : "#gamut-points");
   const baseRgb = cmykToRgb(state.cmyk);
   const baseHex = rgbToHex(baseRgb);
   const delta = document.querySelector("#max-distance-heading").textContent;
@@ -614,8 +625,6 @@ function renderResults() {
   document.querySelector("#max-distance-heading").textContent = farthest.distance.toFixed(1);
   document.querySelector("#summary-tolerance").textContent = `C / M / Y / K 各 ±${state.tolerance}`;
   document.querySelector("#farthest-hex").textContent = farthest.hex;
-  document.querySelector("#gamut").setAttribute("aria-label", "指定 CMYK 容差内可能颜色的抽样分布图");
-
   document.querySelector("#swatch-count").textContent = swatches.length;
   document.querySelector("#swatches").innerHTML = swatches.map((swatch) => `
     <button class="swatch" type="button" style="background:${swatch.hex}" aria-label="C ${swatch.c}, M ${swatch.m}, Y ${swatch.y}, K ${swatch.k}, ${swatch.hex}, 色差 ${swatch.distance.toFixed(1)}">
@@ -655,11 +664,22 @@ function initialize() {
   });
   document.querySelector("#export-swatches").addEventListener("click", exportSwatchSheet);
   document.querySelector("#export-delta").addEventListener("click", exportDeltaPanel);
+  document.querySelectorAll("[data-gamut-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.gamutMode = button.dataset.gamutMode;
+      document.querySelectorAll("[data-gamut-mode]").forEach((item) => {
+        const active = item.dataset.gamutMode === state.gamutMode;
+        item.classList.toggle("is-active", active);
+        item.setAttribute("aria-pressed", String(active));
+      });
+      drawGamut();
+    });
+  });
 
   renderChannels();
   renderResults();
   requestExactResult();
-  new ResizeObserver(drawGamut).observe(document.querySelector("#gamut"));
+  new ResizeObserver(drawGamut).observe(document.querySelector(".gamut-canvas-wrap"));
 }
 
 initialize();
