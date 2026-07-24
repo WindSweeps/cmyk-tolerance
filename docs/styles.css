@@ -9,9 +9,9 @@
   --line-dark: #aaa397;
   --signal: #ff4f2e;
   --focus: #006ef0;
-  --mono: "SFMono-Regular", "Cascadia Mono", Consolas, monospace;
-  --serif: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
-  --sans: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Monaco, "Cascadia Mono", "Segoe UI Mono", "Roboto Mono", "Noto Sans Mono CJK SC", Consolas, "Liberation Mono", monospace;
+  --serif: "Songti SC", STSong, SimSun, "Noto Serif CJK SC", "Noto Serif SC", "Source Han Serif SC", "Source Han Serif CN", serif;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Droid Sans Fallback", Arial, sans-serif;
 }
 
 * { box-sizing: border-box; }

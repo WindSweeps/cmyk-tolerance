@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 type CMYK = { c: number; m: number; y: number; k: number };
 type ColorPoint = CMYK & {
@@ -26,6 +26,7 @@ const presets: Array<{ name: string; value: CMYK }> = [
 ];
 
 const clamp = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+const SAMPLE_LIMIT = 8000;
 
 function cmykToRgb({ c, m, y, k }: CMYK): [number, number, number] {
   return [
@@ -68,35 +69,62 @@ export default function Home() {
   const [cmyk, setCmyk] = useState<CMYK>({ c: 80, m: 80, y: 60, k: 5 });
   const [tolerance, setTolerance] = useState(10);
   const [sort, setSort] = useState<"distance" | "light" | "channel">("distance");
+  const [exactFarthest, setExactFarthest] = useState<ColorPoint | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const deferredCmyk = useDeferredValue(cmyk);
 
   const baseRgb = useMemo(() => cmykToRgb(cmyk), [cmyk]);
   const baseHex = useMemo(() => rgbToHex(baseRgb), [baseRgb]);
   const baseLab = useMemo(() => rgbToLab(baseRgb), [baseRgb]);
+  const deferredBaseLab = useMemo(() => rgbToLab(cmykToRgb(deferredCmyk)), [deferredCmyk]);
 
   const points = useMemo(() => {
     const result: ColorPoint[] = [];
-    for (let dc = -tolerance; dc <= tolerance; dc += 1) {
-      for (let dm = -tolerance; dm <= tolerance; dm += 1) {
-        for (let dy = -tolerance; dy <= tolerance; dy += 1) {
-          for (let dk = -tolerance; dk <= tolerance; dk += 1) {
-            result.push(makePoint({
-              c: clamp(cmyk.c + dc),
-              m: clamp(cmyk.m + dm),
-              y: clamp(cmyk.y + dy),
-              k: clamp(cmyk.k + dk),
-            }, baseLab));
-          }
-        }
-      }
+    const side = tolerance * 2 + 1;
+    const total = side ** 4;
+    const sampleCount = Math.min(total, SAMPLE_LIMIT);
+    for (let sample = 0; sample < sampleCount; sample += 1) {
+      const index = sampleCount === 1 ? 0 : Math.round(sample * (total - 1) / (sampleCount - 1));
+      let remainder = index;
+      const dk = remainder % side - tolerance;
+      remainder = Math.floor(remainder / side);
+      const dy = remainder % side - tolerance;
+      remainder = Math.floor(remainder / side);
+      const dm = remainder % side - tolerance;
+      const dc = Math.floor(remainder / side) - tolerance;
+      result.push(makePoint({
+        c: clamp(deferredCmyk.c + dc),
+        m: clamp(deferredCmyk.m + dm),
+        y: clamp(deferredCmyk.y + dy),
+        k: clamp(deferredCmyk.k + dk),
+      }, deferredBaseLab));
     }
     return result;
-  }, [cmyk, tolerance, baseLab]);
+  }, [deferredCmyk, tolerance, deferredBaseLab]);
 
-  const farthest = useMemo(
+  const previewFarthest = useMemo(
     () => points.reduce((current, point) => point.distance > current.distance ? point : current, points[0]),
     [points],
   );
+  const farthest = exactFarthest ?? previewFarthest;
+
+  useEffect(() => {
+    setExactFarthest(null);
+    let worker: Worker | null = null;
+    const timer = window.setTimeout(() => {
+      worker = new Worker("./color-worker.js");
+      worker.addEventListener("message", (event: MessageEvent<{ farthest: ColorPoint }>) => {
+        setExactFarthest(event.data.farthest);
+        worker?.terminate();
+        worker = null;
+      });
+      worker.postMessage({ request: 1, cmyk, tolerance });
+    }, 180);
+    return () => {
+      window.clearTimeout(timer);
+      worker?.terminate();
+    };
+  }, [cmyk, tolerance]);
 
   const swatches = useMemo(() => {
     const offsets = tolerance === 0 ? [0] : [-tolerance, 0, tolerance];
@@ -125,8 +153,12 @@ export default function Home() {
     const draw = () => {
       const rect = canvas.getBoundingClientRect();
       const ratio = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.round(rect.width * ratio);
-      canvas.height = Math.round(rect.height * ratio);
+      const width = Math.round(rect.width * ratio);
+      const height = Math.round(rect.height * ratio);
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       context.clearRect(0, 0, rect.width, rect.height);
 
@@ -146,21 +178,15 @@ export default function Home() {
       const xFor = (a: number) => padding + ((a - minA) / spanA) * (rect.width - padding * 2);
       const yFor = (b: number) => rect.height - padding - ((b - minB) / spanB) * (rect.height - padding * 2);
 
-      const dense = points.length > 50000;
-      context.globalAlpha = dense ? 0.18 : points.length > 5000 ? 0.34 : 0.55;
+      context.globalAlpha = points.length > 5000 ? 0.34 : 0.55;
       for (const point of points) {
         context.fillStyle = point.hex;
-        if (dense) {
-          context.fillRect(xFor(point.a), yFor(point.b), 1.25, 1.25);
-        } else {
-          context.beginPath();
-          context.arc(xFor(point.a), yFor(point.b), points.length > 5000 ? 1.35 : 1.8, 0, Math.PI * 2);
-          context.fill();
-        }
+        const size = points.length > 5000 ? 1.35 : 1.8;
+        context.fillRect(xFor(point.a), yFor(point.b), size, size);
       }
       context.globalAlpha = 1;
-      const x = xFor(baseLab.a);
-      const y = yFor(baseLab.b);
+      const x = xFor(deferredBaseLab.a);
+      const y = yFor(deferredBaseLab.b);
       context.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--ink");
       context.lineWidth = 1.5;
       context.beginPath();
@@ -176,7 +202,7 @@ export default function Home() {
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [points, baseLab]);
+  }, [points, deferredBaseLab]);
 
   const updateChannel = (key: keyof CMYK, value: number) => {
     setCmyk((current) => ({ ...current, [key]: clamp(Number.isFinite(value) ? value : 0) }));

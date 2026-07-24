@@ -18,9 +18,14 @@ const state = {
   sort: "distance",
   points: [],
   baseLab: null,
+  renderFrame: 0,
+  exactTimer: 0,
+  worker: null,
+  workerRequest: 0,
 };
 
 const clamp = (value) => Math.max(0, Math.min(100, Math.round(value)));
+const SAMPLE_LIMIT = window.matchMedia("(pointer: coarse)").matches ? 5000 : 8000;
 
 function cmykToRgb({ c, m, y, k }) {
   return [
@@ -59,24 +64,69 @@ function makePoint(value, baseLab) {
   };
 }
 
-function buildPoints() {
+function buildPreviewPoints() {
   const result = [];
   const { cmyk, tolerance, baseLab } = state;
-  for (let dc = -tolerance; dc <= tolerance; dc += 1) {
-    for (let dm = -tolerance; dm <= tolerance; dm += 1) {
-      for (let dy = -tolerance; dy <= tolerance; dy += 1) {
-        for (let dk = -tolerance; dk <= tolerance; dk += 1) {
-          result.push(makePoint({
-            c: clamp(cmyk.c + dc),
-            m: clamp(cmyk.m + dm),
-            y: clamp(cmyk.y + dy),
-            k: clamp(cmyk.k + dk),
-          }, baseLab));
-        }
-      }
-    }
+  const side = tolerance * 2 + 1;
+  const total = side ** 4;
+  const sampleCount = Math.min(total, SAMPLE_LIMIT);
+
+  for (let sample = 0; sample < sampleCount; sample += 1) {
+    const index = sampleCount === 1 ? 0 : Math.round(sample * (total - 1) / (sampleCount - 1));
+    let remainder = index;
+    const dk = remainder % side - tolerance;
+    remainder = Math.floor(remainder / side);
+    const dy = remainder % side - tolerance;
+    remainder = Math.floor(remainder / side);
+    const dm = remainder % side - tolerance;
+    const dc = Math.floor(remainder / side) - tolerance;
+    result.push(makePoint({
+      c: clamp(cmyk.c + dc),
+      m: clamp(cmyk.m + dm),
+      y: clamp(cmyk.y + dy),
+      k: clamp(cmyk.k + dk),
+    }, baseLab));
   }
   state.points = result;
+}
+
+function getPreviewFarthest() {
+  let farthest = state.points[0];
+  for (let index = 1; index < state.points.length; index += 1) {
+    if (state.points[index].distance > farthest.distance) farthest = state.points[index];
+  }
+  return farthest;
+}
+
+function requestExactResult() {
+  window.clearTimeout(state.exactTimer);
+  if (state.worker) {
+    state.worker.terminate();
+    state.worker = null;
+  }
+  const request = ++state.workerRequest;
+  state.exactTimer = window.setTimeout(() => {
+    state.worker = new Worker("./color-worker.js?v=1");
+    state.worker.addEventListener("message", (event) => {
+      if (event.data.request !== request) return;
+      const farthest = event.data.farthest;
+      document.querySelector("#max-distance-heading").textContent = farthest.distance.toFixed(1);
+      document.querySelector("#farthest-hex").textContent = farthest.hex;
+      state.worker.terminate();
+      state.worker = null;
+    });
+    state.worker.postMessage({ request, cmyk: { ...state.cmyk }, tolerance: state.tolerance });
+  }, 180);
+}
+
+function scheduleRender({ exact = true } = {}) {
+  if (!state.renderFrame) {
+    state.renderFrame = requestAnimationFrame(() => {
+      state.renderFrame = 0;
+      renderResults();
+    });
+  }
+  if (exact) requestExactResult();
 }
 
 function drawGamut() {
@@ -85,8 +135,12 @@ function drawGamut() {
   const rect = canvas.getBoundingClientRect();
   if (!rect.width || !rect.height || !state.points.length) return;
   const ratio = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.round(rect.width * ratio);
-  canvas.height = Math.round(rect.height * ratio);
+  const width = Math.round(rect.width * ratio);
+  const height = Math.round(rect.height * ratio);
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
   context.clearRect(0, 0, rect.width, rect.height);
 
@@ -106,17 +160,11 @@ function drawGamut() {
   const xFor = (a) => padding + ((a - minA) / spanA) * (rect.width - padding * 2);
   const yFor = (b) => rect.height - padding - ((b - minB) / spanB) * (rect.height - padding * 2);
 
-  const dense = state.points.length > 50000;
-  context.globalAlpha = dense ? 0.18 : state.points.length > 5000 ? 0.34 : 0.55;
+  context.globalAlpha = state.points.length > 5000 ? 0.34 : 0.55;
   for (const point of state.points) {
     context.fillStyle = point.hex;
-    if (dense) {
-      context.fillRect(xFor(point.a), yFor(point.b), 1.25, 1.25);
-    } else {
-      context.beginPath();
-      context.arc(xFor(point.a), yFor(point.b), state.points.length > 5000 ? 1.35 : 1.8, 0, Math.PI * 2);
-      context.fill();
-    }
+    const size = state.points.length > 5000 ? 1.35 : 1.8;
+    context.fillRect(xFor(point.a), yFor(point.b), size, size);
   }
   context.globalAlpha = 1;
   const x = xFor(state.baseLab.a);
@@ -158,7 +206,7 @@ function renderChannels() {
       sibling.value = state.cmyk[key];
       if (sibling.type === "range") sibling.style.setProperty("--position", `${state.cmyk[key]}%`);
       if (event.target.type === "range") event.target.style.setProperty("--position", `${state.cmyk[key]}%`);
-      renderResults();
+      scheduleRender();
     });
   });
 }
@@ -185,8 +233,8 @@ function renderResults() {
   const baseRgb = cmykToRgb(state.cmyk);
   const baseHex = rgbToHex(baseRgb);
   state.baseLab = rgbToLab(baseRgb);
-  buildPoints();
-  const farthest = state.points.reduce((current, point) => point.distance > current.distance ? point : current, state.points[0]);
+  buildPreviewPoints();
+  const farthest = getPreviewFarthest();
 
   document.querySelector("#base-swatch").style.background = baseHex;
   document.querySelector("#base-hex").textContent = baseHex;
@@ -194,7 +242,7 @@ function renderResults() {
   document.querySelector("#max-distance-heading").textContent = farthest.distance.toFixed(1);
   document.querySelector("#summary-tolerance").textContent = `C / M / Y / K 各 ±${state.tolerance}`;
   document.querySelector("#farthest-hex").textContent = farthest.hex;
-  document.querySelector("#gamut").setAttribute("aria-label", `${state.points.length} 种可能颜色的色彩分布图`);
+  document.querySelector("#gamut").setAttribute("aria-label", "指定 CMYK 容差内可能颜色的抽样分布图");
 
   const swatches = buildSwatches();
   document.querySelector("#swatch-count").textContent = swatches.length;
@@ -204,7 +252,7 @@ function renderResults() {
       <small>C${swatch.c} M${swatch.m} Y${swatch.y} K${swatch.k}</small>
     </button>
   `).join("");
-  requestAnimationFrame(drawGamut);
+  drawGamut();
 }
 
 function initialize() {
@@ -217,7 +265,7 @@ function initialize() {
     button.addEventListener("click", () => {
       state.cmyk = { ...presets[Number(button.dataset.preset)].value };
       renderChannels();
-      renderResults();
+      scheduleRender();
     });
   });
 
@@ -227,7 +275,7 @@ function initialize() {
     tolerance.style.setProperty("--position", `${state.tolerance * 10}%`);
     document.querySelector("#tolerance-output").textContent = `±${state.tolerance}`;
     document.querySelector("#top-tolerance").textContent = `Δ ±${state.tolerance}`;
-    renderResults();
+    scheduleRender();
   });
 
   document.querySelector("#sort").addEventListener("change", (event) => {
@@ -237,6 +285,7 @@ function initialize() {
 
   renderChannels();
   renderResults();
+  requestExactResult();
   new ResizeObserver(drawGamut).observe(document.querySelector("#gamut"));
 }
 
