@@ -13,7 +13,7 @@ const presets = [
 ];
 
 const state = {
-  cmyk: { c: 82, m: 44, y: 0, k: 3 },
+  cmyk: { c: 80, m: 80, y: 60, k: 5 },
   tolerance: 5,
   sort: "distance",
   points: [],

@@ -65,7 +65,7 @@ function makePoint(value: CMYK, baseLab: ReturnType<typeof rgbToLab>): ColorPoin
 }
 
 export default function Home() {
-  const [cmyk, setCmyk] = useState<CMYK>({ c: 82, m: 44, y: 0, k: 3 });
+  const [cmyk, setCmyk] = useState<CMYK>({ c: 80, m: 80, y: 60, k: 5 });
   const [tolerance, setTolerance] = useState(5);
   const [sort, setSort] = useState<"distance" | "light" | "channel">("distance");
   const canvasRef = useRef<HTMLCanvasElement>(null);
