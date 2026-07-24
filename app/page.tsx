@@ -11,6 +11,12 @@ type ColorPoint = CMYK & {
   b: number;
   distance: number;
 };
+type PointCloud = {
+  positions: Float32Array;
+  colors: Uint8ClampedArray;
+  bounds: [number, number, number, number];
+  count: number;
+};
 
 const channels = [
   { key: "c", label: "C", name: "青", color: "#00a7c8" },
@@ -65,7 +71,7 @@ function makePoint(value: CMYK, baseLab: ReturnType<typeof rgbToLab>): ColorPoin
   };
 }
 
-function buildPreviewPoints(cmyk: CMYK, tolerance: number, baseLab: ReturnType<typeof rgbToLab>, limit = 8000) {
+function buildPreviewPoints(cmyk: CMYK, tolerance: number, baseLab: ReturnType<typeof rgbToLab>, limit = 3000) {
   const result: ColorPoint[] = [];
   const side = tolerance * 2 + 1;
   const total = side ** 4;
@@ -89,7 +95,68 @@ function buildPreviewPoints(cmyk: CMYK, tolerance: number, baseLab: ReturnType<t
   return result;
 }
 
+function drawFullPointGamut(
+  canvas: HTMLCanvasElement,
+  cloud: PointCloud,
+  baseLab: ReturnType<typeof rgbToLab>,
+) {
+  canvas.dataset.renderQuality = "full";
+  canvas.dataset.pointCount = String(cloud.count);
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const ratio = Math.min(window.devicePixelRatio || 1, 2);
+  const width = Math.round(rect.width * ratio);
+  const height = Math.round(rect.height * ratio);
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  const image = context.createImageData(width, height);
+  const pixels = image.data;
+  const padding = 32 * ratio;
+  const [minA, maxA, minB, maxB] = cloud.bounds;
+  const spanA = Math.max(maxA - minA, 1);
+  const spanB = Math.max(maxB - minB, 1);
+  const plotWidth = width - padding * 2;
+  const plotHeight = height - padding * 2;
+  const radius = Math.max(2, Math.round(2.1 * ratio));
+  const radiusSquared = radius * radius;
+  for (let point = 0; point < cloud.count; point += 1) {
+    const x = Math.round(padding + ((cloud.positions[point * 2] - minA) / spanA) * plotWidth);
+    const y = Math.round(height - padding - ((cloud.positions[point * 2 + 1] - minB) / spanB) * plotHeight);
+    const colorIndex = point * 3;
+    for (let offsetY = -radius; offsetY <= radius; offsetY += 1) {
+      if (y + offsetY < 0 || y + offsetY >= height) continue;
+      for (let offsetX = -radius; offsetX <= radius; offsetX += 1) {
+        if (offsetX * offsetX + offsetY * offsetY > radiusSquared || x + offsetX < 0 || x + offsetX >= width) continue;
+        const pixelIndex = ((y + offsetY) * width + x + offsetX) * 4;
+        pixels[pixelIndex] = cloud.colors[colorIndex];
+        pixels[pixelIndex + 1] = cloud.colors[colorIndex + 1];
+        pixels[pixelIndex + 2] = cloud.colors[colorIndex + 2];
+        pixels[pixelIndex + 3] = 255;
+      }
+    }
+  }
+  context.putImageData(image, 0, 0);
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  const x = 32 + ((baseLab.a - minA) / spanA) * (rect.width - 64);
+  const y = rect.height - 32 - ((baseLab.b - minB) / spanB) * (rect.height - 64);
+  context.strokeStyle = "#181816";
+  context.lineWidth = 1.5;
+  context.beginPath();
+  context.arc(x, y, 7, 0, Math.PI * 2);
+  context.moveTo(x - 11, y);
+  context.lineTo(x + 11, y);
+  context.moveTo(x, y - 11);
+  context.lineTo(x, y + 11);
+  context.stroke();
+}
+
 function drawPointGamut(canvas: HTMLCanvasElement, points: ColorPoint[], baseLab: ReturnType<typeof rgbToLab>) {
+  canvas.dataset.renderQuality = "preview";
+  canvas.dataset.pointCount = String(points.length);
   const rect = canvas.getBoundingClientRect();
   if (!rect.width || !rect.height || !points.length) return;
   const ratio = Math.min(window.devicePixelRatio || 1, 2);
@@ -325,6 +392,7 @@ export default function Home() {
   const [sort, setSort] = useState<"distance" | "light" | "channel">("distance");
   const [gamutMode, setGamutMode] = useState<"points" | "continuous">("points");
   const [exactFarthest, setExactFarthest] = useState<ColorPoint | null>(null);
+  const [fullCloud, setFullCloud] = useState<PointCloud | null>(null);
   const pointsCanvasRef = useRef<HTMLCanvasElement>(null);
   const continuousCanvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -338,11 +406,13 @@ export default function Home() {
 
   useEffect(() => {
     setExactFarthest(null);
+    setFullCloud(null);
     let worker: Worker | null = null;
     const timer = window.setTimeout(() => {
       worker = new Worker("./color-worker.js");
-      worker.addEventListener("message", (event: MessageEvent<{ farthest: ColorPoint }>) => {
+      worker.addEventListener("message", (event: MessageEvent<{ farthest: ColorPoint; cloud: PointCloud }>) => {
         setExactFarthest(event.data.farthest);
+        setFullCloud(event.data.cloud);
         worker?.terminate();
         worker = null;
       });
@@ -382,6 +452,7 @@ export default function Home() {
     if (!canvas) return;
     const draw = () => {
       if (gamutMode === "continuous") drawShaderGamut(canvas, cmyk, tolerance);
+      else if (fullCloud) drawFullPointGamut(canvas, fullCloud, baseLab);
       else drawPointGamut(canvas, previewPoints, baseLab);
     };
 
@@ -389,7 +460,7 @@ export default function Home() {
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [cmyk, tolerance, gamutMode, previewPoints, baseLab]);
+  }, [cmyk, tolerance, gamutMode, previewPoints, fullCloud, baseLab]);
 
   const updateChannel = (key: keyof CMYK, value: number) => {
     setCmyk((current) => ({ ...current, [key]: clamp(Number.isFinite(value) ? value : 0) }));

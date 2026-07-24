@@ -27,7 +27,13 @@ function rgbToLab([r, g, b]) {
 self.addEventListener("message", (event) => {
   const { request, cmyk, tolerance } = event.data;
   const baseLab = rgbToLab(cmykToRgb(cmyk));
+  const side = tolerance * 2 + 1;
+  const count = side ** 4;
+  const positions = new Float32Array(count * 2);
+  const colors = new Uint8ClampedArray(count * 3);
+  const bounds = [Infinity, -Infinity, Infinity, -Infinity];
   let farthest = null;
+  let index = 0;
 
   for (let dc = -tolerance; dc <= tolerance; dc += 1) {
     for (let dm = -tolerance; dm <= tolerance; dm += 1) {
@@ -41,6 +47,16 @@ self.addEventListener("message", (event) => {
           };
           const rgb = cmykToRgb(value);
           const lab = rgbToLab(rgb);
+          positions[index * 2] = lab.a;
+          positions[index * 2 + 1] = lab.b;
+          colors[index * 3] = rgb[0];
+          colors[index * 3 + 1] = rgb[1];
+          colors[index * 3 + 2] = rgb[2];
+          bounds[0] = Math.min(bounds[0], lab.a);
+          bounds[1] = Math.max(bounds[1], lab.a);
+          bounds[2] = Math.min(bounds[2], lab.b);
+          bounds[3] = Math.max(bounds[3], lab.b);
+          index += 1;
           const distance = Math.sqrt(
             (lab.l - baseLab.l) ** 2
             + (lab.a - baseLab.a) ** 2
@@ -54,5 +70,8 @@ self.addEventListener("message", (event) => {
     }
   }
 
-  self.postMessage({ request, farthest });
+  self.postMessage(
+    { request, farthest, cloud: { positions, colors, bounds, count } },
+    [positions.buffer, colors.buffer],
+  );
 });

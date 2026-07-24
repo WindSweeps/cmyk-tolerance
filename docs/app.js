@@ -17,6 +17,7 @@ const state = {
   tolerance: 10,
   sort: "distance",
   points: [],
+  fullCloud: null,
   baseLab: null,
   renderFrame: 0,
   exactTimer: 0,
@@ -27,7 +28,7 @@ const state = {
 };
 
 const clamp = (value) => Math.max(0, Math.min(100, Math.round(value)));
-const SAMPLE_LIMIT = window.matchMedia("(pointer: coarse)").matches ? 5000 : 8000;
+const PREVIEW_SAMPLE_LIMIT = window.matchMedia("(pointer: coarse)").matches ? 1800 : 3000;
 
 function cmykToRgb({ c, m, y, k }) {
   return [
@@ -71,7 +72,7 @@ function buildPreviewPoints() {
   const { cmyk, tolerance, baseLab } = state;
   const side = tolerance * 2 + 1;
   const total = side ** 4;
-  const sampleCount = Math.min(total, SAMPLE_LIMIT);
+  const sampleCount = Math.min(total, PREVIEW_SAMPLE_LIMIT);
 
   for (let sample = 0; sample < sampleCount; sample += 1) {
     const index = sampleCount === 1 ? 0 : Math.round(sample * (total - 1) / (sampleCount - 1));
@@ -100,12 +101,14 @@ function requestExactResult() {
   }
   const request = ++state.workerRequest;
   state.exactTimer = window.setTimeout(() => {
-    state.worker = new Worker("./color-worker.js?v=1");
+    state.worker = new Worker("./color-worker.js?v=2");
     state.worker.addEventListener("message", (event) => {
       if (event.data.request !== request) return;
       const farthest = event.data.farthest;
       document.querySelector("#max-distance-heading").textContent = farthest.distance.toFixed(1);
       document.querySelector("#farthest-hex").textContent = farthest.hex;
+      state.fullCloud = event.data.cloud;
+      if (state.gamutMode === "points") drawGamut();
       state.worker.terminate();
       state.worker = null;
     });
@@ -305,6 +308,8 @@ function drawGamutWebGL(renderer, width, height, ratio) {
 
 function drawGamutFallback(canvas, rect, ratio) {
   if (!state.points.length) buildPreviewPoints();
+  canvas.dataset.renderQuality = "preview";
+  canvas.dataset.pointCount = String(state.points.length);
   const context = canvas.getContext("2d");
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
   context.clearRect(0, 0, rect.width, rect.height);
@@ -344,6 +349,54 @@ function drawGamutFallback(canvas, rect, ratio) {
   context.stroke();
 }
 
+function drawFullPointCloud(canvas, rect, ratio, cloud) {
+  canvas.dataset.renderQuality = "full";
+  canvas.dataset.pointCount = String(cloud.count);
+  const context = canvas.getContext("2d");
+  const width = canvas.width;
+  const height = canvas.height;
+  const image = context.createImageData(width, height);
+  const pixels = image.data;
+  const padding = 32 * ratio;
+  const [minA, maxA, minB, maxB] = cloud.bounds;
+  const spanA = Math.max(maxA - minA, 1);
+  const spanB = Math.max(maxB - minB, 1);
+  const plotWidth = width - padding * 2;
+  const plotHeight = height - padding * 2;
+  const radius = Math.max(2, Math.round(2.1 * ratio));
+  const radiusSquared = radius * radius;
+
+  for (let point = 0; point < cloud.count; point += 1) {
+    const x = Math.round(padding + ((cloud.positions[point * 2] - minA) / spanA) * plotWidth);
+    const y = Math.round(height - padding - ((cloud.positions[point * 2 + 1] - minB) / spanB) * plotHeight);
+    const colorIndex = point * 3;
+    for (let offsetY = -radius; offsetY <= radius; offsetY += 1) {
+      if (y + offsetY < 0 || y + offsetY >= height) continue;
+      for (let offsetX = -radius; offsetX <= radius; offsetX += 1) {
+        if (offsetX * offsetX + offsetY * offsetY > radiusSquared || x + offsetX < 0 || x + offsetX >= width) continue;
+        const pixelIndex = ((y + offsetY) * width + x + offsetX) * 4;
+        pixels[pixelIndex] = cloud.colors[colorIndex];
+        pixels[pixelIndex + 1] = cloud.colors[colorIndex + 1];
+        pixels[pixelIndex + 2] = cloud.colors[colorIndex + 2];
+        pixels[pixelIndex + 3] = 255;
+      }
+    }
+  }
+  context.putImageData(image, 0, 0);
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  const x = 32 + ((state.baseLab.a - minA) / spanA) * (rect.width - 64);
+  const y = rect.height - 32 - ((state.baseLab.b - minB) / spanB) * (rect.height - 64);
+  context.strokeStyle = "#181816";
+  context.lineWidth = 1.5;
+  context.beginPath();
+  context.arc(x, y, 7, 0, Math.PI * 2);
+  context.moveTo(x - 11, y);
+  context.lineTo(x + 11, y);
+  context.moveTo(x, y - 11);
+  context.lineTo(x, y + 11);
+  context.stroke();
+}
+
 function drawGamut() {
   const pointsCanvas = document.querySelector("#gamut-points");
   const continuousCanvas = document.querySelector("#gamut-continuous");
@@ -368,7 +421,8 @@ function drawGamut() {
       drawGamutWebGL(state.gamutRenderer, width, height, ratio);
     }
   } else {
-    drawGamutFallback(canvas, rect, ratio);
+    if (state.fullCloud) drawFullPointCloud(canvas, rect, ratio, state.fullCloud);
+    else drawGamutFallback(canvas, rect, ratio);
   }
 }
 
@@ -616,6 +670,7 @@ function renderResults() {
   const baseHex = rgbToHex(baseRgb);
   state.baseLab = rgbToLab(baseRgb);
   state.points = [];
+  state.fullCloud = null;
   const swatches = buildSwatches();
   const farthest = swatches.reduce((current, point) => point.distance > current.distance ? point : current, swatches[0]);
 
