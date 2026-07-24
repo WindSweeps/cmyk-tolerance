@@ -478,7 +478,7 @@ export default function Home() {
       <section className="hero" id="top">
         <div className="hero-copy">
           <p className="eyebrow">PRINT COLOR EXPLORER · 01</p>
-          <h1>看见颜色<br /><em>允许的偏差</em></h1>
+          <h1>色差实验室<br /><em>CMYK印刷容差可视化</em></h1>
         </div>
         <div className="hero-note">
           <p className="hero-context">实际印刷中，套印、供墨与承印材料差异都可能使 CMYK 产生轻微偏移。</p>
