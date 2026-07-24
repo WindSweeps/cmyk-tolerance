@@ -196,7 +196,7 @@ export default function Home() {
           <h1>看见颜色<br /><em>允许的偏差</em></h1>
         </div>
         <div className="hero-note">
-          <span className="note-index">A—01</span>
+          <p className="hero-context">实际印刷中，套印、供墨与承印材料差异都可能使 CMYK 产生轻微偏移。</p>
           <p>输入一组 CMYK 值，观察四个通道在指定容差内波动时，所有可能出现的屏幕模拟色。</p>
         </div>
       </section>

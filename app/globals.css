@@ -145,13 +145,16 @@ h1 em { color: transparent; font-style: normal; -webkit-text-stroke: 1px var(--i
   padding-top: 18px;
 }
 
-.note-index {
-  color: var(--quiet);
-  display: block;
-  font-family: var(--mono);
-  font-size: 9px;
-  margin-bottom: 14px;
+.hero-note .hero-context {
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.7;
+  margin-bottom: 10px;
 }
+
+.hero-note p:last-child { margin-bottom: 0; }
 
 .control-deck {
   background: var(--surface);
