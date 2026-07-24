@@ -14,7 +14,7 @@ const presets = [
 
 const state = {
   cmyk: { c: 80, m: 80, y: 60, k: 5 },
-  tolerance: 5,
+  tolerance: 10,
   sort: "distance",
   points: [],
   baseLab: null,
@@ -91,23 +91,32 @@ function drawGamut() {
   context.clearRect(0, 0, rect.width, rect.height);
 
   const padding = 32;
-  const aValues = state.points.map((point) => point.a);
-  const bValues = state.points.map((point) => point.b);
-  const minA = Math.min(...aValues);
-  const maxA = Math.max(...aValues);
-  const minB = Math.min(...bValues);
-  const maxB = Math.max(...bValues);
+  let minA = Infinity;
+  let maxA = -Infinity;
+  let minB = Infinity;
+  let maxB = -Infinity;
+  for (const point of state.points) {
+    minA = Math.min(minA, point.a);
+    maxA = Math.max(maxA, point.a);
+    minB = Math.min(minB, point.b);
+    maxB = Math.max(maxB, point.b);
+  }
   const spanA = Math.max(maxA - minA, 1);
   const spanB = Math.max(maxB - minB, 1);
   const xFor = (a) => padding + ((a - minA) / spanA) * (rect.width - padding * 2);
   const yFor = (b) => rect.height - padding - ((b - minB) / spanB) * (rect.height - padding * 2);
 
-  context.globalAlpha = state.points.length > 5000 ? 0.34 : 0.55;
+  const dense = state.points.length > 50000;
+  context.globalAlpha = dense ? 0.18 : state.points.length > 5000 ? 0.34 : 0.55;
   for (const point of state.points) {
     context.fillStyle = point.hex;
-    context.beginPath();
-    context.arc(xFor(point.a), yFor(point.b), state.points.length > 5000 ? 1.35 : 1.8, 0, Math.PI * 2);
-    context.fill();
+    if (dense) {
+      context.fillRect(xFor(point.a), yFor(point.b), 1.25, 1.25);
+    } else {
+      context.beginPath();
+      context.arc(xFor(point.a), yFor(point.b), state.points.length > 5000 ? 1.35 : 1.8, 0, Math.PI * 2);
+      context.fill();
+    }
   }
   context.globalAlpha = 1;
   const x = xFor(state.baseLab.a);
@@ -215,7 +224,7 @@ function initialize() {
   const tolerance = document.querySelector("#tolerance");
   tolerance.addEventListener("input", () => {
     state.tolerance = Number(tolerance.value);
-    tolerance.style.setProperty("--position", `${state.tolerance * 20}%`);
+    tolerance.style.setProperty("--position", `${state.tolerance * 10}%`);
     document.querySelector("#tolerance-output").textContent = `±${state.tolerance}`;
     document.querySelector("#top-tolerance").textContent = `Δ ±${state.tolerance}`;
     renderResults();

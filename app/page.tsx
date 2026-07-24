@@ -66,7 +66,7 @@ function makePoint(value: CMYK, baseLab: ReturnType<typeof rgbToLab>): ColorPoin
 
 export default function Home() {
   const [cmyk, setCmyk] = useState<CMYK>({ c: 80, m: 80, y: 60, k: 5 });
-  const [tolerance, setTolerance] = useState(5);
+  const [tolerance, setTolerance] = useState(10);
   const [sort, setSort] = useState<"distance" | "light" | "channel">("distance");
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -131,23 +131,32 @@ export default function Home() {
       context.clearRect(0, 0, rect.width, rect.height);
 
       const padding = 32;
-      const aValues = points.map((point) => point.a);
-      const bValues = points.map((point) => point.b);
-      const minA = Math.min(...aValues);
-      const maxA = Math.max(...aValues);
-      const minB = Math.min(...bValues);
-      const maxB = Math.max(...bValues);
+      let minA = Infinity;
+      let maxA = -Infinity;
+      let minB = Infinity;
+      let maxB = -Infinity;
+      for (const point of points) {
+        minA = Math.min(minA, point.a);
+        maxA = Math.max(maxA, point.a);
+        minB = Math.min(minB, point.b);
+        maxB = Math.max(maxB, point.b);
+      }
       const spanA = Math.max(maxA - minA, 1);
       const spanB = Math.max(maxB - minB, 1);
       const xFor = (a: number) => padding + ((a - minA) / spanA) * (rect.width - padding * 2);
       const yFor = (b: number) => rect.height - padding - ((b - minB) / spanB) * (rect.height - padding * 2);
 
-      context.globalAlpha = points.length > 5000 ? 0.34 : 0.55;
+      const dense = points.length > 50000;
+      context.globalAlpha = dense ? 0.18 : points.length > 5000 ? 0.34 : 0.55;
       for (const point of points) {
         context.fillStyle = point.hex;
-        context.beginPath();
-        context.arc(xFor(point.a), yFor(point.b), points.length > 5000 ? 1.35 : 1.8, 0, Math.PI * 2);
-        context.fill();
+        if (dense) {
+          context.fillRect(xFor(point.a), yFor(point.b), 1.25, 1.25);
+        } else {
+          context.beginPath();
+          context.arc(xFor(point.a), yFor(point.b), points.length > 5000 ? 1.35 : 1.8, 0, Math.PI * 2);
+          context.fill();
+        }
       }
       context.globalAlpha = 1;
       const x = xFor(baseLab.a);
@@ -262,12 +271,12 @@ export default function Home() {
               id="tolerance"
               type="range"
               min="0"
-              max="5"
+              max="10"
               value={tolerance}
               onChange={(event) => setTolerance(Number(event.target.value))}
-              style={{ "--position": `${tolerance * 20}%` } as React.CSSProperties}
+              style={{ "--position": `${tolerance * 10}%` } as React.CSSProperties}
             />
-            <span>±5</span>
+            <span>±10</span>
             <output>±{tolerance}</output>
           </div>
         </div>
