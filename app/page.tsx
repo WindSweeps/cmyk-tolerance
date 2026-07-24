@@ -1,6 +1,7 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { drawShaderGamut } from "./gamutWebGL";
 
 type CMYK = { c: number; m: number; y: number; k: number };
 type ColorPoint = CMYK & {
@@ -26,7 +27,6 @@ const presets: Array<{ name: string; value: CMYK }> = [
 ];
 
 const clamp = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
-const SAMPLE_LIMIT = 8000;
 
 function cmykToRgb({ c, m, y, k }: CMYK): [number, number, number] {
   return [
@@ -259,42 +259,10 @@ export default function Home() {
   const [sort, setSort] = useState<"distance" | "light" | "channel">("distance");
   const [exactFarthest, setExactFarthest] = useState<ColorPoint | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const deferredCmyk = useDeferredValue(cmyk);
 
   const baseRgb = useMemo(() => cmykToRgb(cmyk), [cmyk]);
   const baseHex = useMemo(() => rgbToHex(baseRgb), [baseRgb]);
   const baseLab = useMemo(() => rgbToLab(baseRgb), [baseRgb]);
-  const deferredBaseLab = useMemo(() => rgbToLab(cmykToRgb(deferredCmyk)), [deferredCmyk]);
-
-  const points = useMemo(() => {
-    const result: ColorPoint[] = [];
-    const side = tolerance * 2 + 1;
-    const total = side ** 4;
-    const sampleCount = Math.min(total, SAMPLE_LIMIT);
-    for (let sample = 0; sample < sampleCount; sample += 1) {
-      const index = sampleCount === 1 ? 0 : Math.round(sample * (total - 1) / (sampleCount - 1));
-      let remainder = index;
-      const dk = remainder % side - tolerance;
-      remainder = Math.floor(remainder / side);
-      const dy = remainder % side - tolerance;
-      remainder = Math.floor(remainder / side);
-      const dm = remainder % side - tolerance;
-      const dc = Math.floor(remainder / side) - tolerance;
-      result.push(makePoint({
-        c: clamp(deferredCmyk.c + dc),
-        m: clamp(deferredCmyk.m + dm),
-        y: clamp(deferredCmyk.y + dy),
-        k: clamp(deferredCmyk.k + dk),
-      }, deferredBaseLab));
-    }
-    return result;
-  }, [deferredCmyk, tolerance, deferredBaseLab]);
-
-  const previewFarthest = useMemo(
-    () => points.reduce((current, point) => point.distance > current.distance ? point : current, points[0]),
-    [points],
-  );
-  const farthest = exactFarthest ?? previewFarthest;
 
   useEffect(() => {
     setExactFarthest(null);
@@ -331,66 +299,22 @@ export default function Home() {
       return left.c - right.c || left.m - right.m || left.y - right.y || left.k - right.k;
     });
   }, [cmyk, tolerance, baseLab, sort]);
+  const previewFarthest = useMemo(
+    () => swatches.reduce((current, point) => point.distance > current.distance ? point : current, swatches[0]),
+    [swatches],
+  );
+  const farthest = exactFarthest ?? previewFarthest;
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const context = canvas.getContext("2d");
-    if (!context) return;
-
-    const draw = () => {
-      const rect = canvas.getBoundingClientRect();
-      const ratio = Math.min(window.devicePixelRatio || 1, 2);
-      const width = Math.round(rect.width * ratio);
-      const height = Math.round(rect.height * ratio);
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
-      }
-      context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      context.clearRect(0, 0, rect.width, rect.height);
-
-      const padding = 32;
-      let minA = Infinity;
-      let maxA = -Infinity;
-      let minB = Infinity;
-      let maxB = -Infinity;
-      for (const point of points) {
-        minA = Math.min(minA, point.a);
-        maxA = Math.max(maxA, point.a);
-        minB = Math.min(minB, point.b);
-        maxB = Math.max(maxB, point.b);
-      }
-      const spanA = Math.max(maxA - minA, 1);
-      const spanB = Math.max(maxB - minB, 1);
-      const xFor = (a: number) => padding + ((a - minA) / spanA) * (rect.width - padding * 2);
-      const yFor = (b: number) => rect.height - padding - ((b - minB) / spanB) * (rect.height - padding * 2);
-
-      context.globalAlpha = points.length > 5000 ? 0.34 : 0.55;
-      for (const point of points) {
-        context.fillStyle = point.hex;
-        const size = points.length > 5000 ? 1.35 : 1.8;
-        context.fillRect(xFor(point.a), yFor(point.b), size, size);
-      }
-      context.globalAlpha = 1;
-      const x = xFor(deferredBaseLab.a);
-      const y = yFor(deferredBaseLab.b);
-      context.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--ink");
-      context.lineWidth = 1.5;
-      context.beginPath();
-      context.arc(x, y, 7, 0, Math.PI * 2);
-      context.moveTo(x - 11, y);
-      context.lineTo(x + 11, y);
-      context.moveTo(x, y - 11);
-      context.lineTo(x, y + 11);
-      context.stroke();
-    };
+    const draw = () => drawShaderGamut(canvas, cmyk, tolerance);
 
     draw();
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [points, deferredBaseLab]);
+  }, [cmyk, tolerance]);
 
   const updateChannel = (key: keyof CMYK, value: number) => {
     setCmyk((current) => ({ ...current, [key]: clamp(Number.isFinite(value) ? value : 0) }));
