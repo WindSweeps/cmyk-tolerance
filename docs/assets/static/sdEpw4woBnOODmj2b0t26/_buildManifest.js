@@ -4,7 +4,7 @@ self.__BUILD_MANIFEST = {
     "beforeFiles": [
       {
         "source": "/cmyk-tolerance//_next/:path+",
-        "destination": "/cmyk-tolerance/_next/:path+"
+        "destination": "/cmyk-tolerance/assets/:path+"
       }
     ],
     "fallback": []
