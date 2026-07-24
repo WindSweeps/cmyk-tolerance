@@ -4,6 +4,8 @@ const vertexSource = `#version 300 es
 precision highp float;
 uniform vec4 u_base;
 uniform int u_side;
+uniform int u_total;
+uniform int u_draw_count;
 uniform float u_tolerance;
 uniform vec4 u_bounds;
 uniform vec2 u_plot_scale;
@@ -28,6 +30,7 @@ void main() {
   vec4 cmyk = u_base;
   if (u_marker == 0) {
     int index = gl_VertexID;
+    if (u_draw_count < u_total) index = (gl_VertexID * 8191) % u_total;
     float dk = float(index % u_side) - u_tolerance; index /= u_side;
     float dy = float(index % u_side) - u_tolerance; index /= u_side;
     float dm = float(index % u_side) - u_tolerance; index /= u_side;
@@ -81,7 +84,7 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string) {
 }
 
 function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
-  const gl = canvas.getContext("webgl2", { alpha: true, antialias: true, powerPreference: "high-performance", preserveDrawingBuffer: true });
+  const gl = canvas.getContext("webgl2", { alpha: true, antialias: false, powerPreference: "high-performance", preserveDrawingBuffer: true });
   if (!gl) return null;
   const program = gl.createProgram()!;
   const vertex = compile(gl, gl.VERTEX_SHADER, vertexSource);
@@ -94,12 +97,11 @@ function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) || "Shader link failed");
   gl.useProgram(program);
   gl.bindVertexArray(gl.createVertexArray());
-  gl.enable(gl.BLEND);
-  gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  gl.disable(gl.BLEND);
   return {
     gl,
     program,
-    uniforms: Object.fromEntries(["base", "side", "tolerance", "bounds", "plot_scale", "point_size", "marker", "alpha"].map((name) => [name, gl.getUniformLocation(program, `u_${name}`)])),
+    uniforms: Object.fromEntries(["base", "side", "total", "draw_count", "tolerance", "bounds", "plot_scale", "point_size", "marker", "alpha"].map((name) => [name, gl.getUniformLocation(program, `u_${name}`)])),
   };
 }
 
@@ -143,19 +145,23 @@ export function drawShaderGamut(canvas: HTMLCanvasElement, base: GamutCMYK, tole
   const width = Math.round(rect.width * ratio), height = Math.round(rect.height * ratio);
   if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
   const side = tolerance * 2 + 1, total = side ** 4, bounds = boundsFor(base, tolerance), padding = 32 * ratio;
+  const drawLimit = window.matchMedia("(pointer: coarse)").matches ? 24000 : 36000;
+  const drawCount = Math.min(total, drawLimit);
   gl.viewport(0, 0, width, height);
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.useProgram(program);
   gl.uniform4f(uniforms.base, base.c, base.m, base.y, base.k);
   gl.uniform1i(uniforms.side, side);
+  gl.uniform1i(uniforms.total, total);
+  gl.uniform1i(uniforms.draw_count, drawCount);
   gl.uniform1f(uniforms.tolerance, tolerance);
   gl.uniform4f(uniforms.bounds, bounds[0], bounds[1], bounds[2], bounds[3]);
   gl.uniform2f(uniforms.plot_scale, (width - padding * 2) / width, (height - padding * 2) / height);
-  gl.uniform1f(uniforms.point_size, 3.24 * ratio);
-  gl.uniform1f(uniforms.alpha, total > 50000 ? .12 : total > 5000 ? .25 : .48);
+  gl.uniform1f(uniforms.point_size, 4.2 * ratio);
+  gl.uniform1f(uniforms.alpha, 1);
   gl.uniform1i(uniforms.marker, 0);
-  gl.drawArrays(gl.POINTS, 0, total);
+  gl.drawArrays(gl.POINTS, 0, drawCount);
   gl.uniform1i(uniforms.marker, 1);
   gl.drawArrays(gl.POINTS, 0, 1);
   return true;

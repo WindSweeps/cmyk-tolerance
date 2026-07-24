@@ -126,6 +126,8 @@ const GAMUT_VERTEX_SHADER = `#version 300 es
 precision highp float;
 uniform vec4 u_base;
 uniform int u_side;
+uniform int u_total;
+uniform int u_draw_count;
 uniform float u_tolerance;
 uniform vec4 u_bounds;
 uniform vec2 u_plot_scale;
@@ -158,6 +160,9 @@ void main() {
   vec4 cmyk = u_base;
   if (u_marker == 0) {
     int index = gl_VertexID;
+    if (u_draw_count < u_total) {
+      index = (gl_VertexID * 8191) % u_total;
+    }
     float dk = float(index % u_side) - u_tolerance;
     index /= u_side;
     float dy = float(index % u_side) - u_tolerance;
@@ -214,7 +219,7 @@ function compileShader(gl, type, source) {
 function createGamutRenderer(canvas) {
   const gl = canvas.getContext("webgl2", {
     alpha: true,
-    antialias: true,
+    antialias: false,
     powerPreference: "high-performance",
     preserveDrawingBuffer: true,
   });
@@ -232,19 +237,15 @@ function createGamutRenderer(canvas) {
   }
   gl.useProgram(program);
   gl.bindVertexArray(gl.createVertexArray());
-  gl.enable(gl.BLEND);
-  gl.blendFuncSeparate(
-    gl.SRC_ALPHA,
-    gl.ONE_MINUS_SRC_ALPHA,
-    gl.ONE,
-    gl.ONE_MINUS_SRC_ALPHA,
-  );
+  gl.disable(gl.BLEND);
   return {
     gl,
     program,
     uniforms: {
       base: gl.getUniformLocation(program, "u_base"),
       side: gl.getUniformLocation(program, "u_side"),
+      total: gl.getUniformLocation(program, "u_total"),
+      drawCount: gl.getUniformLocation(program, "u_draw_count"),
       tolerance: gl.getUniformLocation(program, "u_tolerance"),
       bounds: gl.getUniformLocation(program, "u_bounds"),
       plotScale: gl.getUniformLocation(program, "u_plot_scale"),
@@ -283,6 +284,8 @@ function drawGamutWebGL(renderer, width, height, ratio) {
   const { gl, program, uniforms } = renderer;
   const side = state.tolerance * 2 + 1;
   const total = side ** 4;
+  const drawLimit = window.matchMedia("(pointer: coarse)").matches ? 24000 : 36000;
+  const drawCount = Math.min(total, drawLimit);
   const bounds = getGamutBounds();
   const padding = 32 * ratio;
   gl.viewport(0, 0, width, height);
@@ -291,13 +294,15 @@ function drawGamutWebGL(renderer, width, height, ratio) {
   gl.useProgram(program);
   gl.uniform4f(uniforms.base, state.cmyk.c, state.cmyk.m, state.cmyk.y, state.cmyk.k);
   gl.uniform1i(uniforms.side, side);
+  gl.uniform1i(uniforms.total, total);
+  gl.uniform1i(uniforms.drawCount, drawCount);
   gl.uniform1f(uniforms.tolerance, state.tolerance);
   gl.uniform4f(uniforms.bounds, bounds[0], bounds[1], bounds[2], bounds[3]);
   gl.uniform2f(uniforms.plotScale, (width - padding * 2) / width, (height - padding * 2) / height);
-  gl.uniform1f(uniforms.pointSize, 3.24 * ratio);
-  gl.uniform1f(uniforms.alpha, total > 50000 ? 0.12 : total > 5000 ? 0.25 : 0.48);
+  gl.uniform1f(uniforms.pointSize, 4.2 * ratio);
+  gl.uniform1f(uniforms.alpha, 1);
   gl.uniform1i(uniforms.marker, 0);
-  gl.drawArrays(gl.POINTS, 0, total);
+  gl.drawArrays(gl.POINTS, 0, drawCount);
   gl.uniform1i(uniforms.marker, 1);
   gl.uniform1f(uniforms.alpha, 1);
   gl.drawArrays(gl.POINTS, 0, 1);
@@ -323,11 +328,11 @@ function drawGamutFallback(canvas, rect, ratio) {
   const spanB = Math.max(maxB - minB, 1);
   const xFor = (a) => padding + ((a - minA) / spanA) * (rect.width - padding * 2);
   const yFor = (b) => rect.height - padding - ((b - minB) / spanB) * (rect.height - padding * 2);
-  context.globalAlpha = state.points.length > 5000 ? 0.34 : 0.55;
+  context.globalAlpha = 1;
   for (const point of state.points) {
     context.fillStyle = point.hex;
     context.beginPath();
-    context.arc(xFor(point.a), yFor(point.b), state.points.length > 5000 ? 1.62 : 2.16, 0, Math.PI * 2);
+    context.arc(xFor(point.a), yFor(point.b), state.points.length > 5000 ? 2.1 : 2.5, 0, Math.PI * 2);
     context.fill();
   }
   context.globalAlpha = 1;
