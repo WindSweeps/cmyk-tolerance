@@ -111,8 +111,8 @@ input:focus-visible {
   display: grid;
   gap: 40px;
   grid-template-columns: 1fr minmax(260px, .36fr);
-  min-height: 430px;
-  padding: 82px 0 68px;
+  min-height: 340px;
+  padding: 44px 0 52px;
 }
 
 .eyebrow, .section-label {
