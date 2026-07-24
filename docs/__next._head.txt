@@ -1,0 +1,6 @@
+1:"$Sreact.fragment"
+2:I[25326,["/cmyk-tolerance/_next/static/chunks/0typu5mmra_zv.js"],"ViewportBoundary"]
+3:I[25326,["/cmyk-tolerance/_next/static/chunks/0typu5mmra_zv.js"],"MetadataBoundary"]
+4:"$Sreact.suspense"
+5:I[20676,["/cmyk-tolerance/_next/static/chunks/0typu5mmra_zv.js"],"IconMark"]
+0:{"rsc":["$","$1","h",{"children":[null,["$","$L2",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]}],["$","div",null,{"hidden":true,"children":["$","$L3",null,{"children":["$","$4",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"色差实验室｜CMYK 容差可视化"}],["$","meta","1",{"name":"description","content":"输入 CMYK 值，可视化四个通道在正负 5 以内的所有可能颜色。"}],["$","link","2",{"rel":"shortcut icon","href":"/cmyk-tolerance/favicon.svg"}],["$","link","3",{"rel":"icon","href":"/cmyk-tolerance/favicon.svg"}],["$","$L5","4",{}]]}]}]}],null]}],"isPartial":false,"staleTime":300,"varyParams":null,"buildId":"sdEpw4woBnOODmj2b0t26"}
