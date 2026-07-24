@@ -353,37 +353,26 @@ function drawFullPointCloud(canvas, rect, ratio, cloud) {
   canvas.dataset.renderQuality = "full";
   canvas.dataset.pointCount = String(cloud.count);
   const context = canvas.getContext("2d");
-  const width = canvas.width;
-  const height = canvas.height;
-  const image = context.createImageData(width, height);
-  const pixels = image.data;
-  const padding = 32 * ratio;
+  const startedAt = performance.now();
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, rect.width, rect.height);
+  context.imageSmoothingEnabled = true;
+  const padding = 32;
   const [minA, maxA, minB, maxB] = cloud.bounds;
   const spanA = Math.max(maxA - minA, 1);
   const spanB = Math.max(maxB - minB, 1);
-  const plotWidth = width - padding * 2;
-  const plotHeight = height - padding * 2;
-  const radius = Math.max(2, Math.round(2.1 * ratio));
-  const radiusSquared = radius * radius;
+  const plotWidth = rect.width - padding * 2;
+  const plotHeight = rect.height - padding * 2;
 
   for (let point = 0; point < cloud.count; point += 1) {
-    const x = Math.round(padding + ((cloud.positions[point * 2] - minA) / spanA) * plotWidth);
-    const y = Math.round(height - padding - ((cloud.positions[point * 2 + 1] - minB) / spanB) * plotHeight);
+    const x = padding + ((cloud.positions[point * 2] - minA) / spanA) * plotWidth;
+    const y = rect.height - padding - ((cloud.positions[point * 2 + 1] - minB) / spanB) * plotHeight;
     const colorIndex = point * 3;
-    for (let offsetY = -radius; offsetY <= radius; offsetY += 1) {
-      if (y + offsetY < 0 || y + offsetY >= height) continue;
-      for (let offsetX = -radius; offsetX <= radius; offsetX += 1) {
-        if (offsetX * offsetX + offsetY * offsetY > radiusSquared || x + offsetX < 0 || x + offsetX >= width) continue;
-        const pixelIndex = ((y + offsetY) * width + x + offsetX) * 4;
-        pixels[pixelIndex] = cloud.colors[colorIndex];
-        pixels[pixelIndex + 1] = cloud.colors[colorIndex + 1];
-        pixels[pixelIndex + 2] = cloud.colors[colorIndex + 2];
-        pixels[pixelIndex + 3] = 255;
-      }
-    }
+    context.fillStyle = `rgb(${cloud.colors[colorIndex]} ${cloud.colors[colorIndex + 1]} ${cloud.colors[colorIndex + 2]})`;
+    context.beginPath();
+    context.arc(x, y, 2.1, 0, Math.PI * 2);
+    context.fill();
   }
-  context.putImageData(image, 0, 0);
-  context.setTransform(ratio, 0, 0, ratio, 0, 0);
   const x = 32 + ((state.baseLab.a - minA) / spanA) * (rect.width - 64);
   const y = rect.height - 32 - ((state.baseLab.b - minB) / spanB) * (rect.height - 64);
   context.strokeStyle = "#181816";
@@ -395,6 +384,7 @@ function drawFullPointCloud(canvas, rect, ratio, cloud) {
   context.moveTo(x, y - 11);
   context.lineTo(x, y + 11);
   context.stroke();
+  canvas.dataset.renderMs = String(Math.round(performance.now() - startedAt));
 }
 
 function drawGamut() {
