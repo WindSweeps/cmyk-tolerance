@@ -124,74 +124,31 @@ function scheduleRender({ exact = true } = {}) {
 
 const GAMUT_VERTEX_SHADER = `#version 300 es
 precision highp float;
-uniform vec4 u_base;
-uniform int u_side;
-uniform int u_total;
-uniform int u_draw_count;
-uniform float u_tolerance;
+layout(location = 0) in vec2 a_lab;
+layout(location = 1) in vec3 a_color;
 uniform vec4 u_bounds;
 uniform vec2 u_plot_scale;
 uniform float u_point_size;
-uniform int u_marker;
+uniform int u_mode;
 out vec3 v_color;
-flat out int v_marker;
-
-float pivot(float value) {
-  return value > 0.008856 ? pow(value, 1.0 / 3.0) : 7.787 * value + 16.0 / 116.0;
-}
-
-vec3 rgbToLab(vec3 rgb) {
-  vec3 linear = mix(rgb / 12.92, pow((rgb + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), rgb));
-  float x = dot(linear, vec3(0.4124, 0.3576, 0.1805)) / 0.95047;
-  float y = dot(linear, vec3(0.2126, 0.7152, 0.0722));
-  float z = dot(linear, vec3(0.0193, 0.1192, 0.9505)) / 1.08883;
-  float fx = pivot(x);
-  float fy = pivot(y);
-  float fz = pivot(z);
-  return vec3(116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz));
-}
-
-vec3 cmykToRgb(vec4 cmyk) {
-  vec3 rgb = (1.0 - cmyk.xyz / 100.0) * (1.0 - cmyk.w / 100.0);
-  return floor(rgb * 255.0 + 0.5) / 255.0;
-}
 
 void main() {
-  vec4 cmyk = u_base;
-  if (u_marker == 0) {
-    int index = gl_VertexID;
-    if (u_draw_count < u_total) {
-      index = (gl_VertexID * 8191) % u_total;
-    }
-    float dk = float(index % u_side) - u_tolerance;
-    index /= u_side;
-    float dy = float(index % u_side) - u_tolerance;
-    index /= u_side;
-    float dm = float(index % u_side) - u_tolerance;
-    index /= u_side;
-    float dc = float(index % u_side) - u_tolerance;
-    cmyk = clamp(u_base + vec4(dc, dm, dy, dk), 0.0, 100.0);
-  }
-  vec3 rgb = cmykToRgb(cmyk);
-  vec3 lab = rgbToLab(rgb);
-  float x = ((lab.y - u_bounds.x) / max(u_bounds.y - u_bounds.x, 1.0)) * 2.0 - 1.0;
-  float y = ((lab.z - u_bounds.z) / max(u_bounds.w - u_bounds.z, 1.0)) * 2.0 - 1.0;
+  float x = ((a_lab.x - u_bounds.x) / max(u_bounds.y - u_bounds.x, 1.0)) * 2.0 - 1.0;
+  float y = ((a_lab.y - u_bounds.z) / max(u_bounds.w - u_bounds.z, 1.0)) * 2.0 - 1.0;
   gl_Position = vec4(x * u_plot_scale.x, y * u_plot_scale.y, 0.0, 1.0);
-  gl_PointSize = u_marker == 1 ? u_point_size * 7.0 : u_point_size;
-  v_color = rgb;
-  v_marker = u_marker;
+  gl_PointSize = u_point_size;
+  v_color = a_color;
 }`;
 
 const GAMUT_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 in vec3 v_color;
-flat in int v_marker;
-uniform float u_alpha;
+uniform int u_mode;
 out vec4 out_color;
 
 void main() {
-  vec2 point = gl_PointCoord * 2.0 - 1.0;
-  if (v_marker == 1) {
+  if (u_mode == 2) {
+    vec2 point = gl_PointCoord * 2.0 - 1.0;
     float radius = length(point);
     bool ring = abs(radius - 0.62) < 0.08;
     bool cross = (abs(point.x) < 0.045 && abs(point.y) < 0.92)
@@ -200,8 +157,11 @@ void main() {
     out_color = vec4(0.094, 0.094, 0.086, 1.0);
     return;
   }
-  if (dot(point, point) > 1.0) discard;
-  out_color = vec4(v_color, u_alpha);
+  if (u_mode == 1) {
+    out_color = vec4(0.094, 0.094, 0.086, 0.92);
+    return;
+  }
+  out_color = vec4(v_color, 1.0);
 }`;
 
 function compileShader(gl, type, source) {
@@ -219,7 +179,7 @@ function compileShader(gl, type, source) {
 function createGamutRenderer(canvas) {
   const gl = canvas.getContext("webgl2", {
     alpha: true,
-    antialias: false,
+    antialias: true,
     powerPreference: "high-performance",
     preserveDrawingBuffer: true,
   });
@@ -236,75 +196,106 @@ function createGamutRenderer(canvas) {
     throw new Error(gl.getProgramInfoLog(program) || "Shader link failed");
   }
   gl.useProgram(program);
-  gl.bindVertexArray(gl.createVertexArray());
+  const vertexArray = gl.createVertexArray();
+  const buffer = gl.createBuffer();
+  gl.bindVertexArray(vertexArray);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 20, 0);
+  gl.enableVertexAttribArray(1);
+  gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 20, 8);
   gl.disable(gl.BLEND);
   return {
     gl,
     program,
+    buffer,
+    vertexArray,
     uniforms: {
-      base: gl.getUniformLocation(program, "u_base"),
-      side: gl.getUniformLocation(program, "u_side"),
-      total: gl.getUniformLocation(program, "u_total"),
-      drawCount: gl.getUniformLocation(program, "u_draw_count"),
-      tolerance: gl.getUniformLocation(program, "u_tolerance"),
       bounds: gl.getUniformLocation(program, "u_bounds"),
       plotScale: gl.getUniformLocation(program, "u_plot_scale"),
       pointSize: gl.getUniformLocation(program, "u_point_size"),
-      marker: gl.getUniformLocation(program, "u_marker"),
-      alpha: gl.getUniformLocation(program, "u_alpha"),
+      mode: gl.getUniformLocation(program, "u_mode"),
     },
   };
 }
 
-function getGamutBounds() {
+function crossProduct(origin, left, right) {
+  return (left.a - origin.a) * (right.b - origin.b) - (left.b - origin.b) * (right.a - origin.a);
+}
+
+function convexHull(points) {
+  if (points.length <= 2) return points;
+  const sorted = [...points].sort((left, right) => left.a - right.a || left.b - right.b);
+  const lower = [];
+  for (const point of sorted) {
+    while (lower.length >= 2 && crossProduct(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) lower.pop();
+    lower.push(point);
+  }
+  const upper = [];
+  for (let index = sorted.length - 1; index >= 0; index -= 1) {
+    const point = sorted[index];
+    while (upper.length >= 2 && crossProduct(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) upper.pop();
+    upper.push(point);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+function getGamutShape() {
   const tolerance = state.tolerance;
   const offsets = tolerance === 0
     ? [0]
     : [-tolerance, -Math.ceil(tolerance / 2), 0, Math.floor(tolerance / 2), tolerance];
-  let minA = Infinity;
-  let maxA = -Infinity;
-  let minB = Infinity;
-  let maxB = -Infinity;
+  const unique = new Map();
   for (const dc of offsets) for (const dm of offsets) for (const dy of offsets) for (const dk of offsets) {
-    const lab = rgbToLab(cmykToRgb({
+    const rgb = cmykToRgb({
       c: clamp(state.cmyk.c + dc),
       m: clamp(state.cmyk.m + dm),
       y: clamp(state.cmyk.y + dy),
       k: clamp(state.cmyk.k + dk),
-    }));
-    minA = Math.min(minA, lab.a);
-    maxA = Math.max(maxA, lab.a);
-    minB = Math.min(minB, lab.b);
-    maxB = Math.max(maxB, lab.b);
+    });
+    const lab = rgbToLab(rgb);
+    const key = `${lab.a.toFixed(4)}:${lab.b.toFixed(4)}`;
+    unique.set(key, { a: lab.a, b: lab.b, rgb: rgb.map((value) => value / 255) });
   }
-  return [minA, maxA, minB, maxB];
+  const hull = convexHull([...unique.values()]);
+  const baseRgb = cmykToRgb(state.cmyk);
+  const center = { a: state.baseLab.a, b: state.baseLab.b, rgb: baseRgb.map((value) => value / 255) };
+  const bounds = hull.reduce((result, point) => [
+    Math.min(result[0], point.a),
+    Math.max(result[1], point.a),
+    Math.min(result[2], point.b),
+    Math.max(result[3], point.b),
+  ], [center.a, center.a, center.b, center.b]);
+  return { hull, center, bounds };
 }
 
 function drawGamutWebGL(renderer, width, height, ratio) {
-  const { gl, program, uniforms } = renderer;
-  const side = state.tolerance * 2 + 1;
-  const total = side ** 4;
-  const drawLimit = window.matchMedia("(pointer: coarse)").matches ? 24000 : 36000;
-  const drawCount = Math.min(total, drawLimit);
-  const bounds = getGamutBounds();
+  const { gl, program, uniforms, buffer, vertexArray } = renderer;
+  const { hull, center, bounds } = getGamutShape();
+  const loop = hull.length ? [...hull, hull[0]] : [center];
+  const vertices = [center, ...loop];
+  const data = new Float32Array(vertices.flatMap((point) => [point.a, point.b, ...point.rgb]));
   const padding = 32 * ratio;
   gl.viewport(0, 0, width, height);
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.useProgram(program);
-  gl.uniform4f(uniforms.base, state.cmyk.c, state.cmyk.m, state.cmyk.y, state.cmyk.k);
-  gl.uniform1i(uniforms.side, side);
-  gl.uniform1i(uniforms.total, total);
-  gl.uniform1i(uniforms.drawCount, drawCount);
-  gl.uniform1f(uniforms.tolerance, state.tolerance);
+  gl.bindVertexArray(vertexArray);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
   gl.uniform4f(uniforms.bounds, bounds[0], bounds[1], bounds[2], bounds[3]);
   gl.uniform2f(uniforms.plotScale, (width - padding * 2) / width, (height - padding * 2) / height);
-  gl.uniform1f(uniforms.pointSize, 4.2 * ratio);
-  gl.uniform1f(uniforms.alpha, 1);
-  gl.uniform1i(uniforms.marker, 0);
-  gl.drawArrays(gl.POINTS, 0, drawCount);
-  gl.uniform1i(uniforms.marker, 1);
-  gl.uniform1f(uniforms.alpha, 1);
+  gl.uniform1f(uniforms.pointSize, 22 * ratio);
+  if (hull.length >= 3) {
+    gl.uniform1i(uniforms.mode, 0);
+    gl.drawArrays(gl.TRIANGLE_FAN, 0, vertices.length);
+    gl.uniform1i(uniforms.mode, 1);
+    gl.lineWidth(Math.min(1.25 * ratio, 2));
+    gl.drawArrays(gl.LINE_LOOP, 1, hull.length);
+  }
+  gl.uniform1i(uniforms.mode, 2);
   gl.drawArrays(gl.POINTS, 0, 1);
 }
 
